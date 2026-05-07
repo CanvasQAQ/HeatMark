@@ -11,6 +11,9 @@ let pythonProcess = null
 let backendReady = false
 
 function getBackendDir() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'backend')
+  }
   return path.join(__dirname, '..', '..', 'backend')
 }
 
@@ -114,7 +117,7 @@ function createWindow() {
     title: 'HeatMark - 热敏标签打印工具',
   })
 
-  const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev')
+  const isDev = !app.isPackaged || process.argv.includes('--dev')
   const vitePort = 5173
 
   if (isDev) {

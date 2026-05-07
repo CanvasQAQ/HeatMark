@@ -26,7 +26,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useCanvasStore } from '../stores/canvas.js'
-import { Canvas, Rect, Line, FabricImage, IText } from 'fabric'
+import { Canvas, Rect, Line, FabricImage, IText, Textbox } from 'fabric'
 import { EditTwo, Rectangle, DividingLine, Pic, DeleteOne } from '@icon-park/vue-next'
 
 const store = useCanvasStore()
@@ -35,6 +35,22 @@ const canvasWrapper = ref(null)
 const imageInput = ref(null)
 let fabricCanvas = null
 const hasSelection = ref(false)
+
+function emitChange() {
+  saveState()
+  emit('canvas-changed')
+}
+
+function emitSelection() {
+  const active = fabricCanvas.getActiveObject()
+  if (active instanceof IText) {
+    store.selectedObjectType = 'text'
+    store.selectedFontSize = active.fontSize
+    store.selectedFontFamily = active.fontFamily
+  } else {
+    store.selectedObjectType = active ? active.type : null
+  }
+}
 
 
 onMounted(() => {
@@ -67,17 +83,68 @@ function initCanvas() {
     preserveObjectStacking: true,
   })
 
-  fabricCanvas.on('selection:created', () => { hasSelection.value = true })
-  fabricCanvas.on('selection:updated', () => { hasSelection.value = true })
-  fabricCanvas.on('selection:cleared', () => { hasSelection.value = false })
+  let _scalingData = null
 
-  const emitChange = () => {
-    saveState()
-    emit('canvas-changed')
-  }
+  fabricCanvas.on('selection:created', () => { _scalingData = null; hasSelection.value = true; emitSelection() })
+  fabricCanvas.on('selection:updated', () => { _scalingData = null; hasSelection.value = true; emitSelection() })
+  fabricCanvas.on('selection:cleared', () => { _scalingData = null; hasSelection.value = false; emitSelection() })
+
+  fabricCanvas.on('mouse:up', (e) => {
+    if (e.target) {
+      nextTick(() => emitSelection())
+    }
+  })
+
   fabricCanvas.on('object:added', emitChange)
-  fabricCanvas.on('object:modified', emitChange)
+
+  // 拖动开始时记录初始状态
+  fabricCanvas.on('object:scaling', (e) => {
+    if (e.target instanceof IText && _scalingData === null) {
+      _scalingData = {
+        initialFontSize: e.target.fontSize,
+        initialWidth: e.target.width,
+        corner: e.transform?.corner,
+      }
+    }
+  })
+
+  // 拖动结束：将 scale 归一化为 fontSize 或 width
+  function finalizeTextScale(obj) {
+    if (!_scalingData) return
+    const { corner, initialFontSize } = _scalingData
+
+    if (corner === 'ml' || corner === 'mr') {
+      // 水平控制点 → Fabric.js 的 changeWidth 已直接修改了 obj.width
+      // 文字在拖动过程中已经自动换行，只需更新控制点位置
+      obj.scaleX = 1
+      obj.scaleY = 1
+      obj.setCoords()
+    } else {
+      // 垂直控制点或四角 → 将 scale 固化为字号
+      const capturedScaleX = obj.scaleX
+      const capturedScaleY = obj.scaleY
+      obj.scaleX = 1
+      obj.scaleY = 1
+      const scale = (corner === 'mt' || corner === 'mb')
+        ? Math.abs(capturedScaleY)
+        : Math.max(Math.abs(capturedScaleX), Math.abs(capturedScaleY))
+      obj.fontSize = Math.max(6, Math.round(initialFontSize * scale))
+      obj.initDimensions()
+      obj.setCoords()
+    }
+    _scalingData = null
+  }
+
+  fabricCanvas.on('object:modified', (e) => {
+    if (e.target instanceof IText) {
+      finalizeTextScale(e.target)
+      fabricCanvas.requestRenderAll()
+      emitSelection()
+    }
+    emitChange()
+  })
   fabricCanvas.on('object:removed', emitChange)
+  fabricCanvas.on('text:changed', emitChange)
 
   resizeCanvas()
   emit('canvas-changed')
@@ -96,12 +163,19 @@ function resizeCanvas() {
 }
 
 function addText() {
-  const text = new IText('双击编辑', {
+  const text = new Textbox('双击编辑', {
     left: 20, top: 20, fontSize: 24, fill: '#000000',
     fontFamily: 'Arial, Microsoft YaHei, sans-serif',
+    width: 300,
+    splitByGrapheme: true,
   })
+  text._getMinWidth = function() { return 1 }
   fabricCanvas.add(text)
+  text.initDimensions()
+  text.setCoords()
   fabricCanvas.setActiveObject(text)
+  fabricCanvas.requestRenderAll()
+  nextTick(() => emitSelection())
 }
 
 function addRect() {
@@ -111,12 +185,14 @@ function addRect() {
   })
   fabricCanvas.add(rect)
   fabricCanvas.setActiveObject(rect)
+  nextTick(() => emitSelection())
 }
 
 function addLine() {
   const line = new Line([10, 10, 100, 10], { stroke: '#000000', strokeWidth: 2 })
   fabricCanvas.add(line)
   fabricCanvas.setActiveObject(line)
+  nextTick(() => emitSelection())
 }
 
 function addImage() {
@@ -137,6 +213,7 @@ function onImageSelected(e) {
       img.set({ left: 10, top: 10 })
       fabricCanvas.add(img)
       fabricCanvas.setActiveObject(img)
+      nextTick(() => emitSelection())
     })
   }
   reader.readAsDataURL(file)
@@ -150,12 +227,20 @@ function deleteSelected() {
 
 function bringForward() {
   const active = fabricCanvas.getActiveObject()
-  if (active) fabricCanvas.bringForward(active)
+  if (active) {
+    fabricCanvas.bringObjectForward(active)
+    fabricCanvas.requestRenderAll()
+    emitChange()
+  }
 }
 
 function sendBackward() {
   const active = fabricCanvas.getActiveObject()
-  if (active) fabricCanvas.sendBackwards(active)
+  if (active) {
+    fabricCanvas.sendObjectBackwards(active)
+    fabricCanvas.requestRenderAll()
+    emitChange()
+  }
 }
 
 function clearCanvas() {
@@ -175,7 +260,29 @@ function getCanvasImageBase64() {
   })
 }
 
-defineExpose({ getCanvasImageBase64, clearCanvas })
+function setFontSize(size) {
+  const active = fabricCanvas.getActiveObject()
+  if (active instanceof IText) {
+    active.fontSize = size
+    active.setCoords()
+    fabricCanvas.requestRenderAll()
+    emitChange()
+    emitSelection()
+  }
+}
+
+function setFontFamily(family) {
+  const active = fabricCanvas.getActiveObject()
+  if (active instanceof IText) {
+    active.fontFamily = family
+    active.setCoords()
+    fabricCanvas.requestRenderAll()
+    emitChange()
+    emitSelection()
+  }
+}
+
+defineExpose({ getCanvasImageBase64, clearCanvas, setFontSize, setFontFamily })
 </script>
 
 <style scoped>

@@ -21,6 +21,9 @@ export const useCanvasStore = defineStore('canvas', () => {
   const processedInfo = ref({ width: 0, height: 0, bytesPerRow: 0 })
   const statusMsg = ref('就绪')
   const canvasJson = ref(null)
+  const selectedObjectType = ref(null)
+  const selectedFontSize = ref(24)
+  const selectedFontFamily = ref('Microsoft YaHei')
 
   function getLabelPixelSize() {
     const w = Math.round(imageOptions.labelWidthMm / 25.4 * imageOptions.dpi)
@@ -45,6 +48,9 @@ export const useCanvasStore = defineStore('canvas', () => {
     processedInfo,
     statusMsg,
     canvasJson,
+    selectedObjectType,
+    selectedFontSize,
+    selectedFontFamily,
     getLabelPixelSize,
     effectiveCanvasSize,
   }

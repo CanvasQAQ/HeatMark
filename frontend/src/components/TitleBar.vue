@@ -69,7 +69,7 @@ onMounted(async () => {
 }
 .titlebar-title {
   font-size: 12px;
-  color: #999;
+  color: #9b59b6;
 }
 .titlebar-actions {
   display: flex;

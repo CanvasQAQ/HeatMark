@@ -59,6 +59,28 @@
           </el-collapse>
         </div>
 
+        <div class="panel-section" v-if="store.selectedObjectType === 'text'">
+          <h3>🔤 文字设置</h3>
+          <el-form label-width="60px" size="small">
+            <el-form-item label="字体">
+              <el-select v-model="store.selectedFontFamily" size="small" style="width:160px" @change="onFontFamilyChange">
+                <el-option value="Microsoft YaHei" label="微软雅黑" />
+                <el-option value="SimSun" label="宋体" />
+                <el-option value="SimHei" label="黑体" />
+                <el-option value="KaiTi" label="楷体" />
+                <el-option value="FangSong" label="仿宋" />
+                <el-option value="Arial" label="Arial" />
+                <el-option value="Times New Roman" label="Times New Roman" />
+                <el-option value="Courier New" label="Courier New" />
+                <el-option value="Verdana" label="Verdana" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="字号">
+              <el-input-number v-model="store.selectedFontSize" :min="6" :max="200" :step="1" size="small" style="width:100px" controls-position="right" @change="onFontSizeChange" />
+            </el-form-item>
+          </el-form>
+        </div>
+
         <div class="panel-section">
           <h3>👁 预览</h3>
           <div class="preview-box" @click="refreshPreview">
@@ -172,6 +194,14 @@ async function restartBackend() {
 function onCanvasChanged() {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => { refreshPreview() }, 400)
+}
+
+function onFontSizeChange(val) {
+  if (editorRef.value) editorRef.value.setFontSize(val)
+}
+
+function onFontFamilyChange(val) {
+  if (editorRef.value) editorRef.value.setFontFamily(val)
 }
 
 async function refreshPreview() {
