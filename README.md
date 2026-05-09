@@ -25,42 +25,41 @@
 ### 安装
 
 ```bash
-# 进入项目目录
-cd printer_test
+# 安装 Node 依赖
+npm install
 
 # 安装 Python 后端依赖
 pip install -r backend/requirements.txt
-
-# 安装前端依赖
-cd frontend
-npm install
 ```
 
 ### 启动方式
 
 **方式一：Electron 一体化（推荐）**
 ```bash
-cd frontend
-npm run electron:dev
+npm run dev
 ```
 Electron 会自动拉起 Python 后端，关闭窗口时自动清理。
 
-**方式二：前后端分离（调试用）**
+**方式二：打包发布**
+```bash
+npm run dist
+```
+
+**方式三：前后端分离（调试用）**
 ```bash
 # 终端1：启动后端
 cd backend
 python main.py
 
 # 终端2：启动前端
-cd frontend
-npm run dev
+npx vite
 # 浏览器打开 http://localhost:5173
 ```
 
 ## 项目结构
 
 ```
-printer_test/
+HeatMark/
 ├── backend/                     # Python 后端
 │   ├── main.py                  # FastAPI 入口（端口 8477）
 │   ├── models.py                # Pydantic 数据模型
@@ -68,21 +67,20 @@ printer_test/
 │   ├── tspl_generator.py        # TSPL 协议生成
 │   ├── printer_driver.py        # Windows 打印驱动
 │   └── requirements.txt
-├── frontend/                    # 前端 + Electron
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── index.html
-│   ├── src/
-│   │   ├── main.js              # Vue 入口
-│   │   ├── App.vue              # 主布局
-│   │   ├── api/backend.js       # API 客户端
-│   │   ├── stores/canvas.js     # Pinia 状态管理
-│   │   └── components/
-│   │       ├── TitleBar.vue     # 自定义无边框标题栏
-│   │       └── CanvasEditor.vue # Fabric.js 画布编辑器
-│   └── electron/
-│       ├── main.js              # Electron 主进程
-│       └── preload.js           # IPC 桥接
+├── src/                         # Vue 前端
+│   ├── main.js                  # Vue 入口
+│   ├── App.vue                  # 主布局
+│   ├── api/backend.js           # API 客户端
+│   ├── stores/canvas.js         # Pinia 状态管理
+│   └── components/
+│       ├── TitleBar.vue         # 自定义无边框标题栏
+│       └── CanvasEditor.vue     # Fabric.js 画布编辑器
+├── electron/                    # Electron 主进程
+│   ├── main.js                  # 主进程入口
+│   └── preload.js               # IPC 桥接
+├── package.json
+├── vite.config.js
+├── index.html
 ├── doc/                         # 文档
 │   └── ARCHITECTURE.md          # 架构文档（供 AI 阅读）
 └── archive/                     # 旧版原型（存档）

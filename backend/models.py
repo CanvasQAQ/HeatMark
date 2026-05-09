@@ -8,8 +8,8 @@ class ImageOptions(BaseModel):
     rotation: int = Field(default=0, ge=0, le=270)
     invert: bool = False
     dither: bool = False
-    label_width_mm: int = Field(default=40, ge=10, le=200)
-    label_height_mm: int = Field(default=30, ge=10, le=200)
+    label_width_mm: int = Field(default=40, ge=10, le=200, validation_alias="labelWidthMm")
+    label_height_mm: int = Field(default=30, ge=10, le=200, validation_alias="labelHeightMm")
     dpi: int = Field(default=203, ge=100, le=600)
 
 

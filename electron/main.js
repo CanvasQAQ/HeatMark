@@ -14,7 +14,7 @@ function getBackendDir() {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'backend')
   }
-  return path.join(__dirname, '..', '..', 'backend')
+  return path.join(__dirname, '..', 'backend')
 }
 
 function killPortProcess() {
