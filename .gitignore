@@ -21,6 +21,10 @@ release/
 .DS_Store
 Thumbs.db
 
+# Debug
+debug_*.png
+debug_*.bin
+
 # Env
 .env
 .env.local

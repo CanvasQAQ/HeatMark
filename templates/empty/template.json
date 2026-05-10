@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "name": "空白模板",
+  "labelOptions": {
+    "labelWidthMm": 40,
+    "labelHeightMm": 30,
+    "dpi": 203,
+    "threshold": 128,
+    "contrast": 1.0,
+    "brightness": 1.0,
+    "rotation": 0,
+    "invert": false,
+    "dither": true
+  },
+  "canvasJson": {
+    "version": "6.5.0",
+    "objects": []
+  },
+  "slots": []
+}

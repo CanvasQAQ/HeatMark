@@ -28,3 +28,20 @@ export function printLabel(imageBase64, options, printerName, copies) {
 export function healthCheck() {
   return api.get('/health')
 }
+
+export function getTemplates() {
+  return api.get('/templates')
+}
+
+export function getTemplate(id) {
+  return api.get(`/templates/${encodeURIComponent(id)}`)
+}
+
+export function saveTemplate(body) {
+  return api.post('/templates/save', body)
+}
+
+export function updateIndex(data) {
+  return api.put('/templates/index', data)
+}
+

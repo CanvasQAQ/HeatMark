@@ -32,10 +32,15 @@
         "from": "backend",
         "to": "backend",
         "filter": ["**/*", "!__pycache__", "!*.pyc"]
+      },
+      {
+        "from": "templates",
+        "to": "templates"
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "electron/icon/icon.ico"
     },
     "nsis": {
       "oneClick": false,

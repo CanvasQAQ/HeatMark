@@ -1,0 +1,16 @@
+[
+  {
+    "id": "empty",
+    "name": "空白模板",
+    "labelWidthMm": 40,
+    "labelHeightMm": 30,
+    "dpi": 203
+  },
+  {
+    "id": "template",
+    "name": "取件码",
+    "labelWidthMm": 50,
+    "labelHeightMm": 40,
+    "dpi": 203
+  }
+]

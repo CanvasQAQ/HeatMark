@@ -14,7 +14,10 @@
 │  │  ┌──────────────┐  ┌───────────────────────┐  │  │
 │  │  │ CanvasEditor │  │ App.vue (right panel) │  │  │
 │  │  │ (Fabric.js)  │  │  设置/预览/打印/保存  │  │  │
-│  │  └──────────────┘  └───────────────────────┘  │  │
+│  │  └──────────────┘  │  模板/占位符/槽位     │  │  │
+│  │  ┌─────────────────────────────────────────┐ │  │
+│  │  │ TemplateSelector / TemplateStore        │ │  │
+│  │  └─────────────────────────────────────────┘ │  │
 │  │           ↕ HTTP direct (localhost:8477)        │  │
 │  └───────────────────────────────────────────────┘  │
 │           ↕ IPC (backend-status, restart-backend)   │
@@ -24,6 +27,13 @@
 │  │  │image_pro │  │tspl_gen  │  │printer_drive│ │  │
 │  │  │cessor.py │  │erator.py │  │r.py         │ │  │
 │  │  └──────────┘  └──────────┘  └─────────────┘ │  │
+│  │  ┌──────────────────────────────────────────┐ │  │
+│  │  │ canvas_renderer.py (PIL Canvas渲染)      │ │  │
+│  │  └──────────────────────────────────────────┘ │  │
+│  └───────────────────────────────────────────────┘  │
+│           ↕ CLI                                     │
+│  ┌───────────────────────────────────────────────┐  │
+│  │  heatmark-cli.py (命令行批量打印工具)          │  │
 │  └───────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
 ```
@@ -50,22 +60,39 @@
 
 | 文件 | 职责 | 核心输出 |
 |---|---|---|
-| `backend/main.py` | FastAPI 应用，路由注册，CORS 配置 | 4 个 API 端点 |
-| `backend/models.py` | Pydantic 请求/响应模型，参数校验 | 6 个数据模型 |
+| `backend/main.py` | FastAPI 应用，路由注册，CORS 配置，模板管理 API | 10 个 API 端点 |
+| `backend/models.py` | Pydantic 请求/响应模型，参数校验 | 12 个数据模型 |
 | `backend/image_processor.py` | 图片处理流水线：旋转→缩放→灰度→增强→二值化/抖动→反色 | `process_image()` |
 | `backend/tspl_generator.py` | 位图→TSPL BITMAP 二进制指令生成，180° 方向修正 | `generate_tspl_bytes()` |
 | `backend/printer_driver.py` | Windows 打印机枚举和 RAW 数据发送 | `list_printers()`, `send_to_printer()` |
+| `backend/canvas_renderer.py` | 服务端 Canvas JSON → PIL Image 渲染，支持旋转/透明度/换行 | `render_canvas()` |
 
 ### 2.2 前端（Vue + Electron）
 
 | 文件 | 类型 | 职责 |
 |---|---|---|
-| `frontend/src/App.vue` | Vue SFC | 主布局，所有业务逻辑（预览、打印、保存） |
-| `frontend/src/components/CanvasEditor.vue` | Vue SFC | Fabric.js 画布编辑器，提供 `getCanvasImageBase64()` |
-| `frontend/src/stores/canvas.js` | Pinia Store | 全局状态：图像选项、打印机、份数、状态消息 |
-| `frontend/src/api/backend.js` | JS Module | Axios 封装，对后端 4 个 API 的调用函数 |
-| `frontend/electron/main.js` | Node.js | Electron 主进程：Python 生命周期、端口管理、IPC |
-| `frontend/electron/preload.js` | Node.js | 安全桥接，暴露 `window.electronAPI` 给渲染进程 |
+| `src/App.vue` | Vue SFC | 主布局，所有业务逻辑（预览、打印、保存、模板管理、占位符编辑） |
+| `src/components/CanvasEditor.vue` | Vue SFC | Fabric.js 画布编辑器，支持占位符标记、模板加载/保存 |
+| `src/components/TemplateSelector.vue` | Vue SFC | 模板浏览器弹窗，展示模板列表和预览 |
+| `src/stores/canvas.js` | Pinia Store | 全局状态：图像选项、打印机、份数、状态消息 |
+| `src/stores/template.js` | Pinia Store | 模板状态：模板列表、当前模板、占位符槽位 |
+| `src/api/backend.js` | JS Module | Axios 封装，对后端 10 个 API 的调用函数 |
+| `electron/main.js` | Node.js | Electron 主进程：Python 生命周期、端口管理、IPC |
+| `electron/preload.js` | Node.js | 安全桥接，暴露 `window.electronAPI` 给渲染进程 |
+
+### 2.3 命令行工具
+
+| 文件 | 职责 |
+|---|---|
+| `heatmark-cli.py` | 基于模板的命令行打印工具，支持单行槽位赋值、CSV 批量打印、PNG 预览输出 |
+
+### 2.4 模板文件
+
+| 路径 | 职责 |
+|---|---|
+| `templates/index.json` | 模板索引，列表所有可用模板的 id/name/尺寸/DPI |
+| `templates/<id>/template.json` | 模板定义：labelOptions + canvasJson + slots |
+| `templates/<id>/preview.png` | 模板预览图（可选，base64 存储或 PNG 文件） |
 
 ---
 
@@ -110,6 +137,30 @@ Base URL: `http://127.0.0.1:8477/api`
 ```
 - 返回：`{"success": true, "message": "已发送 1 份到 CHITENG-CT221D"}`
 
+### Template API
+
+### GET /api/templates
+- 返回：`{"success": true, "templates": [...TemplateListItem]}`
+
+### GET /api/templates/{tpl_id}
+- 返回：模板完整 JSON（含 labelOptions, canvasJson, slots）
+
+### POST /api/templates/save
+- 请求体：`{ name, labelOptions, canvasJson, slots, preview_base64 }`
+- 返回：`{"success": true, "id": "..", "name": ".."}`
+
+### PUT /api/templates/index
+- 请求体：`{ "templates": [...] }`
+- 用途：前端更新模板索引顺序
+
+### POST /api/render-template
+- 请求体：`{ template_json, slots: {...}, options }`
+- 返回：`{"success": true, "image_base64": "...", "width": 320, "height": 240}`
+
+### POST /api/template-print
+- 请求体：`{ template_json, slots: {...}, options }`
+- 返回：`{"success": true, "message": "已发送 1 份模板打印到 CHITENG-CT221D"}`
+
 ### 数据流：打印链路
 
 ```
@@ -119,6 +170,23 @@ Canvas.toDataURL(PNG)
   → process_image()     # 旋转/缩放/灰度/增强/二值化 or 抖动/反色
   → generate_tspl_bytes() # 180° 旋转 → BITMAP 二进制指令
   → send_to_printer()      # win32print RAW 发送
+```
+
+### 数据流：模板链路
+
+```
+TemplateSelector → loadTemplate(id)
+  → GET /api/templates/{id} → 获取模板 JSON
+  → CanvasEditor.loadFromJSON(canvasJson) → 加载画布 + 高亮占位符
+  → slotTexts 绑定 → 用户输入 → setSlotText() 实时更新画布文字
+
+保存模板：
+  CanvasEditor.toJSON(['slotId', 'slotLabel']) → canvasJson
+  + labelOptions + previewBase64
+  → POST /api/templates/save → 写入 templates/<id>/template.json
+
+CLI 打印：
+  heatmark-cli.py → render_canvas() → process_image() → generate_tspl_bytes() → send_to_printer()
 ```
 
 ---
@@ -182,6 +250,8 @@ TSPL 打印头物理方向与图片方向不同，`generate_tspl_bytes()` 在生
 
 ## 6. 前端状态管理（Pinia Store）
 
+### 6.1 Canvas Store（`useCanvasStore`）
+
 Store 名称：`canvas`（`useCanvasStore`）
 
 ```javascript
@@ -204,6 +274,27 @@ statusMsg:     '就绪'
 
 `getLabelPixelSize()` 计算像素尺寸：`round(mm / 25.4 * dpi)`
 
+### 6.2 Template Store（`useTemplateStore`）
+
+Store 名称：`template`（`useTemplateStore`）
+
+```javascript
+templateList:        []        // 模板列表
+currentTemplateId:   null      // 当前加载的模板 ID
+currentTemplateName: ''        // 当前模板名称
+currentTemplatePath: ''        // 当前模板文件路径
+slots:               []        // 占位符槽位数组 [{ id, label, defaultText }]
+showSelector:        false     // 模板选择器弹窗可见性
+pendingSlotId:       ''        // 待操作的槽位 ID
+```
+
+关键方法：
+- `fetchTemplateList()`：从 `/api/templates` 拉取列表
+- `loadTemplate(id)`：加载模板完整数据（labelOptions + canvasJson + slots）
+- `persistTemplate(...)`：保存模板到后端
+- `syncSlotsFromCanvas(slotDefs)`：从画布同步槽位定义
+- `addSlot(id, label, defaultText)` / `removeSlot(id)`：管理槽位
+
 ---
 
 ## 7. Canvas 编辑器（Fabric.js v6）
@@ -211,7 +302,7 @@ statusMsg:     '就绪'
 ### 导入
 
 ```javascript
-import { Canvas, Rect, Line, FabricImage, IText } from 'fabric'
+import { Canvas, Rect, Line, FabricImage, IText, StaticCanvas } from 'fabric'
 ```
 
 ### 事件流
@@ -222,7 +313,27 @@ Canvas 操作 (add/modify/remove)
   → emit('canvas-changed')
   → App.vue onCanvasChanged() [400ms debounce]
   → refreshPreview() → POST /api/process → 更新预览图
+
+对象选中 (selection:created / selection:updated / selection:cleared)
+  → emit('selection-changed', activeObject)
+  → App.vue onSelectionChanged(obj) → 显示占位符标记 UI
 ```
+
+### 占位符（Slot）系统
+
+文字对象可被标记为"占位符"：
+- `markAsSlot(obj, slotId)`：设置 `slotId` 属性，显示蓝色虚线边框
+- `unmarkSlot(obj)`：清除 `slotId` 属性，移除占位符样式
+- `getSlots()`：导出当前画布中所有占位符定义
+- 序列化时保存 `slotId` 和 `slotLabel` 属性（通过 `toJSON(['slotId', 'slotLabel'])`）
+
+### 模板加载
+
+`loadFromJSON(canvasJson)` 在已有画布上重新加载对象，自动高亮占位符对象的蓝色虚线边框。
+
+### 图片导出
+
+`getCanvasImageBase64()` 使用 `StaticCanvas` 离屏渲染，避免缩放/选中框干扰输出。
 
 ### 对外接口（defineExpose）
 
@@ -230,6 +341,12 @@ Canvas 操作 (add/modify/remove)
 |---|---|
 | `getCanvasImageBase64()` | 返回 Canvas 的 PNG base64（不含 `data:image/...` 前缀） |
 | `clearCanvas()` | 清空画布 |
+| `loadFromJSON(canvasJson)` | 从 JSON 恢复画布对象（用于模板加载） |
+| `markAsSlot(obj, slotId)` | 标记文字对象为占位符 |
+| `unmarkSlot(obj)` | 取消占位符标记 |
+| `getSlots()` | 获取所有占位符定义 |
+| `getCanvasObjects()` | 获取画布中所有对象 |
+| `resizeCanvas()` | 适配容器尺寸后重渲染 |
 
 ---
 
@@ -263,7 +380,47 @@ app.on('window-all-closed')
 
 ---
 
-## 9. 约定与注意事项
+## 9. 服务端 Canvas 渲染（canvas_renderer.py）
+
+`canvas_renderer.py` 在服务端（无浏览器环境）将 Fabric.js Canvas JSON 渲染为 PIL Image，供模板打印和 CLI 使用。
+
+### 支持的图形类型
+
+| 类型 | 支持属性 |
+|---|---|
+| Text / Textbox / IText | text, fontFamily, fontSize, fill, textAlign, width, 旋转, 透明度, 换行 |
+| Rect | fill, stroke, strokeWidth, 旋转, 透明度 |
+| Line | x1, y1, x2, y2, stroke, strokeWidth, 旋转 |
+| Image | src (data: URL), 缩放, 旋转, 透明度 |
+
+### 字体映射
+
+默认映射常见 Windows 字体路径：
+- Microsoft YaHei → `msyh.ttc`
+- SimSun → `simsun.ttc`
+- SimHei → `simhei.ttf`
+- Arial → `arial.ttf`
+
+### 占位符替换
+
+`render_canvas(canvas_json, w, h, slot_values={})` 自动将对象中 `slotId` 匹配的文本替换为 `slot_values` 中的值。
+
+---
+
+## 10. CLI 工具（heatmark-cli.py）
+
+命令行批量打印工具，独立于 Electron GUI 运行。
+
+```
+python heatmark-cli.py -t 模板名 --slots key=value ... [--print] [--output file.png]
+python heatmark-cli.py -t 模板名 --csv data.csv --print [--copies 1] [--printer NAME]
+```
+
+核心流程：`render_canvas()` → `process_image()` → `generate_tspl_bytes()` → `send_to_printer()`
+
+---
+
+## 11. 约定与注意事项
 
 ### 前端
 - API 调用统一走 `src/api/backend.js`，不要直接在组件中写 `axios.get`
@@ -282,7 +439,7 @@ app.on('window-all-closed')
 
 ---
 
-## 10. [!IMPORTANT] 代码修改后的强制要求
+## 12. [!IMPORTANT] 代码修改后的强制要求
 
 **任何代码修改完成后，必须执行以下操作：**
 

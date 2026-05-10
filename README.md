@@ -1,6 +1,6 @@
 # HeatMark - 热敏标签打印工具
 
-基于 **Electron + Vue 3 + Python FastAPI** 的所见即所得标签打印工具，支持 Canvas 画布编辑、实时预览、Floyd-Steinberg 抖动二值化，通过 TSPL 协议驱动热敏标签打印机。
+基于 **Electron + Vue 3 + Python FastAPI** 的所见即所得标签打印工具，支持 Canvas 画布编辑、模板系统、实时预览、Floyd-Steinberg 抖动二值化、命令行批量打印，通过 TSPL 协议驱动热敏标签打印机。
 
 目前支持机型：**驰腾 CHITENG-CT221D**
 
@@ -66,18 +66,28 @@ HeatMark/
 │   ├── image_processor.py       # 图像处理核心
 │   ├── tspl_generator.py        # TSPL 协议生成
 │   ├── printer_driver.py        # Windows 打印驱动
+│   ├── canvas_renderer.py       # 服务端 Canvas 渲染（模板用）
 │   └── requirements.txt
 ├── src/                         # Vue 前端
 │   ├── main.js                  # Vue 入口
 │   ├── App.vue                  # 主布局
 │   ├── api/backend.js           # API 客户端
-│   ├── stores/canvas.js         # Pinia 状态管理
+│   ├── stores/canvas.js         # Pinia 画布状态管理
+│   ├── stores/template.js       # Pinia 模板状态管理
 │   └── components/
 │       ├── TitleBar.vue         # 自定义无边框标题栏
-│       └── CanvasEditor.vue     # Fabric.js 画布编辑器
+│       ├── CanvasEditor.vue     # Fabric.js 画布编辑器
+│       └── TemplateSelector.vue # 模板选择器
+├── templates/                   # 模板文件（JSON + 预览图）
+│   ├── index.json               # 模板索引
+│   └── <tpl_id>/
+│       ├── template.json        # 模板定义
+│       └── preview.png          # 预览图
 ├── electron/                    # Electron 主进程
 │   ├── main.js                  # 主进程入口
-│   └── preload.js               # IPC 桥接
+│   ├── preload.js               # IPC 桥接
+│   └── icon/                    # 应用图标
+├── heatmark-cli.py              # 命令行打印工具
 ├── package.json
 ├── vite.config.js
 ├── index.html
@@ -93,6 +103,17 @@ HeatMark/
 - 拖入外部图片作为贴图
 - 对象选中、拖拽、缩放、旋转
 - 图层上移/下移、删除
+
+### 模板系统
+- 模板选择器：浏览、选择预设模板
+- 占位符槽位：标记文字对象为动态占位符，实时填充内容
+- 模板保存：将当前画布另存为模板
+- 模板索引：`templates/index.json` 管理模板列表
+
+### 命令行工具（CLI）
+- 基于模板的命令行打印：`python heatmark-cli.py -t 模板名 --slots key=value --print`
+- CSV 批量打印：`python heatmark-cli.py -t 模板名 --csv data.csv --print`
+- 输出 PNG 预览：`python heatmark-cli.py -t 模板名 --slots key=value --output result.png`
 
 ### 图像处理
 - **Floyd-Steinberg 抖动**：通过点阵密度模拟灰度（默认开启）
@@ -126,6 +147,12 @@ HeatMark/
 | GET | `/api/printers` | 获取打印机列表 |
 | POST | `/api/process` | 处理图片（返回二值化结果 base64） |
 | POST | `/api/print` | 打印标签 |
+| GET | `/api/templates` | 获取模板列表 |
+| GET | `/api/templates/{id}` | 获取单个模板详情 |
+| POST | `/api/templates/save` | 保存模板 |
+| PUT | `/api/templates/index` | 更新模板索引 |
+| POST | `/api/render-template` | 渲染模板（返回 base64） |
+| POST | `/api/template-print` | 基于模板打印 |
 
 ## 热敏打印机支持
 

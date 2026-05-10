@@ -26,7 +26,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useCanvasStore } from '../stores/canvas.js'
-import { Canvas, Rect, Line, FabricImage, IText, Textbox } from 'fabric'
+import { Canvas, StaticCanvas, Rect, Line, FabricImage, IText, Textbox } from 'fabric'
 import { EditTwo, Rectangle, DividingLine, Pic, DeleteOne } from '@icon-park/vue-next'
 
 const store = useCanvasStore()
@@ -50,6 +50,7 @@ function emitSelection() {
   } else {
     store.selectedObjectType = active ? active.type : null
   }
+  emit('selection-changed', active)
 }
 
 
@@ -70,12 +71,24 @@ watch(() => store.effectiveCanvasSize, () => {
 }, { deep: true })
 
 function initCanvas() {
+  const { w, h } = store.effectiveCanvasSize
+
   if (fabricCanvas) {
     fabricCanvas.dispose()
     fabricCanvas = null
   }
-  const { w, h } = store.effectiveCanvasSize
-  fabricCanvas = new Canvas('fabric-canvas', {
+
+  let el = document.getElementById('fabric-canvas')
+  if (el) {
+    el.remove()
+  }
+  el = document.createElement('canvas')
+  el.id = 'fabric-canvas'
+  if (canvasWrapper.value) {
+    canvasWrapper.value.appendChild(el)
+  }
+
+  fabricCanvas = new Canvas(el, {
     width: w,
     height: h,
     backgroundColor: '#ffffff',
@@ -157,8 +170,10 @@ function resizeCanvas() {
   const maxH = wrapper.clientHeight - 8
   const scale = Math.min(maxW / fabricCanvas.width, maxH / fabricCanvas.height, 2)
   fabricCanvas.setZoom(scale)
-  fabricCanvas.setWidth(fabricCanvas.width * scale)
-  fabricCanvas.setHeight(fabricCanvas.height * scale)
+  fabricCanvas.setDimensions({
+    width: fabricCanvas.width * scale,
+    height: fabricCanvas.height * scale,
+  }, { cssOnly: true })
   fabricCanvas.renderAll()
 }
 
@@ -249,14 +264,95 @@ function clearCanvas() {
   fabricCanvas.renderAll()
 }
 
+function loadFromJSON(canvasJson) {
+  if (!fabricCanvas || !canvasJson) return
+  return new Promise((resolve) => {
+    fabricCanvas.loadFromJSON(canvasJson, () => {
+      const objects = fabricCanvas.getObjects()
+      for (const obj of objects) {
+        if (obj.slotId) {
+          obj.set({
+            stroke: '#409eff',
+            strokeWidth: 1,
+            strokeDashArray: [4, 2],
+          })
+        }
+      }
+      fabricCanvas.requestRenderAll()
+      resizeCanvas()
+      emitChange()
+      resolve()
+    })
+  })
+}
+
+function markAsSlot(obj, slotId) {
+  if (!obj || !(obj instanceof IText)) return
+  obj.set({
+    slotId,
+    stroke: '#409eff',
+    strokeWidth: 1,
+    strokeDashArray: [4, 2],
+  })
+  fabricCanvas.requestRenderAll()
+  emitChange()
+}
+
+function unmarkSlot(obj) {
+  if (!obj) return
+  obj.set({
+    slotId: undefined,
+    stroke: null,
+    strokeWidth: 0,
+    strokeDashArray: null,
+  })
+  fabricCanvas.requestRenderAll()
+  emitChange()
+}
+
+function getSlots() {
+  if (!fabricCanvas) return []
+  const slots = []
+  for (const obj of fabricCanvas.getObjects()) {
+    if (obj.slotId && obj instanceof IText) {
+      slots.push({
+        id: obj.slotId,
+        label: obj.slotLabel || obj.slotId,
+        defaultText: obj.text,
+      })
+    }
+  }
+  return slots
+}
+
+function getCanvasObjects() {
+  return fabricCanvas ? fabricCanvas.getObjects() : []
+}
+
 function saveState() {
-  if (fabricCanvas) store.canvasJson = JSON.stringify(fabricCanvas.toJSON())
+  if (!fabricCanvas) return
+  const json = fabricCanvas.toJSON(['slotId', 'slotLabel'])
+  const { w, h } = store.effectiveCanvasSize
+  json.width = w
+  json.height = h
+  store.canvasJson = JSON.stringify(json)
 }
 
 function getCanvasImageBase64() {
   return new Promise((resolve) => {
-    const dataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 1, enableRetinaScaling: false })
-    resolve(dataUrl.split(',')[1])
+    const json = fabricCanvas.toJSON(['slotId', 'slotLabel'])
+    const { w, h } = store.effectiveCanvasSize
+    const offscreen = new StaticCanvas(document.createElement('canvas'), {
+      width: w,
+      height: h,
+      backgroundColor: '#ffffff',
+    })
+    offscreen.loadFromJSON(json, () => {
+      offscreen.renderAll()
+      const dataUrl = offscreen.toDataURL({ format: 'png', multiplier: 1, enableRetinaScaling: false })
+      offscreen.dispose()
+      resolve(dataUrl.split(',')[1])
+    })
   })
 }
 
@@ -282,7 +378,7 @@ function setFontFamily(family) {
   }
 }
 
-defineExpose({ getCanvasImageBase64, clearCanvas, setFontSize, setFontFamily })
+defineExpose({ getCanvasImageBase64, clearCanvas, setFontSize, setFontFamily, loadFromJSON, markAsSlot, unmarkSlot, getSlots, getCanvasObjects, resizeCanvas })
 </script>
 
 <style scoped>

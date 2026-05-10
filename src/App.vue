@@ -2,9 +2,14 @@
   <div class="app-root">
     <TitleBar />
 
+    <TemplateSelector
+      v-if="tplStore.showSelector"
+      @select="handleTemplateSelect"
+    />
+
     <div class="app-body">
       <div class="editor-area">
-        <CanvasEditor ref="editorRef" @canvas-changed="onCanvasChanged" />
+        <CanvasEditor ref="editorRef" @canvas-changed="onCanvasChanged" @selection-changed="onSelectionChanged" />
       </div>
 
       <div class="side-panel">
@@ -82,6 +87,55 @@
         </div>
 
         <div class="panel-section">
+          <h3>📋 模板</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <el-button size="small" @click="handleOpenSelector">选择模板</el-button>
+            <el-button size="small" type="success" @click="handleSaveTemplate">另存为模板</el-button>
+          </div>
+        </div>
+
+        <div class="panel-section" v-if="tplStore.slots.length > 0">
+          <h3>🏷 占位符槽位</h3>
+          <div class="slot-list">
+            <div v-for="slot in tplStore.slots" :key="slot.id" class="slot-item">
+              <div class="slot-name">{{ slot.id }}</div>
+              <el-input
+                size="small"
+                v-model="slotTexts[slot.id]"
+                @input="(val) => handleSlotInput(slot.id, val)"
+                @focus="focusedSlotId = slot.id"
+                @blur="focusedSlotId = null"
+                class="slot-text-input"
+                :placeholder="slot.label || slot.id"
+              />
+              <el-button size="small" type="danger" circle @click="handleRemoveSlot(slot.id)" class="slot-del-btn">×</el-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section" v-if="selectedFabricObject && store.selectedObjectType === 'text' && !selectedFabricObject.slotId">
+          <h3>🔖 设为占位符</h3>
+          <el-form label-width="60px" size="small">
+            <el-form-item label="槽位ID">
+              <el-input v-model="slotEditId" size="small" placeholder="例如: productName" />
+            </el-form-item>
+            <el-form-item label="标签名">
+              <el-input v-model="slotEditLabel" size="small" placeholder="显示名称" />
+            </el-form-item>
+            <el-button size="small" type="primary" @click="handleMarkSlot" style="width:100%">
+              标记为占位符
+            </el-button>
+          </el-form>
+        </div>
+
+        <div class="panel-section" v-if="selectedFabricObject && selectedFabricObject.slotId">
+          <h3>🔖 占位符: {{ selectedFabricObject.slotId }}</h3>
+          <el-button size="small" type="warning" @click="handleUnmarkSlot" style="width:100%">
+            取消占位符
+          </el-button>
+        </div>
+
+        <div class="panel-section">
           <h3>👁 预览</h3>
           <div class="preview-box" @click="refreshPreview">
             <div v-if="previewLoading" class="preview-loading"><LoadingOne theme="outline" size="20" spin/></div>
@@ -121,15 +175,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useCanvasStore } from './stores/canvas.js'
+import { useTemplateStore } from './stores/template.js'
 import { getPrinters, healthCheck, printLabel, processImage } from './api/backend.js'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import CanvasEditor from './components/CanvasEditor.vue'
 import TitleBar from './components/TitleBar.vue'
-import { LoadingOne, Save, Printer } from '@icon-park/vue-next'
+import TemplateSelector from './components/TemplateSelector.vue'
+import { LoadingOne, Save, Printer, Close } from '@icon-park/vue-next'
 
 const store = useCanvasStore()
+const tplStore = useTemplateStore()
 const editorRef = ref(null)
 const backendStatus = ref('checking')
 const restarting = ref(false)
@@ -137,6 +194,12 @@ const printing = ref(false)
 const previewDataUrl = ref(null)
 const previewLoading = ref(false)
 const previewInfo = ref(null)
+const selectedFabricObject = ref(null)
+const slotEditId = ref('')
+const slotEditLabel = ref('')
+const slotTexts = reactive({})
+const focusedSlotId = ref(null)
+const slotTimers = ref({})
 
 let debounceTimer = null
 let backendMonitor = null
@@ -157,6 +220,9 @@ onMounted(async () => {
       store.printerName = store.printers[0]
     }
   } catch {}
+
+  await tplStore.fetchTemplateList()
+  tplStore.setShowSelector(true)
 
   if (window.electronAPI) {
     window.electronAPI.onBackendStatus((status) => {
@@ -194,6 +260,7 @@ async function restartBackend() {
 function onCanvasChanged() {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => { refreshPreview() }, 400)
+  refreshSlotTexts()
 }
 
 function onFontSizeChange(val) {
@@ -264,6 +331,173 @@ async function saveTSPL() {
   }
 }
 
+async function handleTemplateSelect(templateId) {
+  tplStore.setShowSelector(false)
+  if (templateId === null) {
+    return
+  }
+  if (!templateId || templateId === 'empty') {
+    tplStore.currentTemplateId = 'empty'
+    tplStore.currentTemplateName = '空白模板'
+    tplStore.slots.splice(0, tplStore.slots.length)
+    return
+  }
+
+  const data = await tplStore.loadTemplate(templateId)
+  if (!data) {
+    ElMessage.error('加载模板失败')
+    return
+  }
+
+  if (data.labelOptions) {
+    const opts = data.labelOptions
+    store.imageOptions.labelWidthMm = opts.labelWidthMm || opts.label_width_mm || 40
+    store.imageOptions.labelHeightMm = opts.labelHeightMm || opts.label_height_mm || 30
+    store.imageOptions.dpi = opts.dpi || 203
+    store.imageOptions.threshold = opts.threshold ?? 128
+    store.imageOptions.contrast = opts.contrast ?? 1.0
+    store.imageOptions.brightness = opts.brightness ?? 1.0
+    store.imageOptions.rotation = opts.rotation ?? 0
+    store.imageOptions.invert = opts.invert ?? false
+    store.imageOptions.dither = opts.dither ?? true
+  }
+
+  if (editorRef.value && data.canvasJson) {
+    await nextTick()
+    await editorRef.value.loadFromJSON(data.canvasJson)
+    await nextTick()
+    editorRef.value.resizeCanvas()
+    initSlotTexts()
+  }
+}
+
+function handleOpenSelector() {
+  tplStore.fetchTemplateList()
+  tplStore.setShowSelector(true)
+}
+
+async function handleSaveTemplate() {
+  if (!editorRef.value) return
+  try {
+    const { value } = await ElMessageBox.prompt('请输入模板名称', '保存模板', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputPlaceholder: '模板名称',
+    })
+    if (!value) return
+
+    const canvasJson = JSON.parse(store.canvasJson || '{}')
+    const slotDefs = editorRef.value.getSlots()
+    tplStore.syncSlotsFromCanvas(slotDefs)
+
+    let previewBase64 = null
+    try {
+      previewBase64 = await editorRef.value.getCanvasImageBase64()
+    } catch {}
+
+    const labelOptions = { ...store.imageOptions }
+    const result = await tplStore.persistTemplate(value, labelOptions, canvasJson, slotDefs, previewBase64)
+    if (result.success) {
+      ElMessage.success(`模板 "${result.name}" 已保存`)
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('保存模板失败: ' + (e.message || e))
+    }
+  }
+}
+
+function handleMarkSlot() {
+  if (!editorRef.value || !selectedFabricObject.value) return
+  const id = slotEditId.value.trim()
+  if (!id) {
+    ElMessage.warning('请输入槽位ID')
+    return
+  }
+  editorRef.value.markAsSlot(selectedFabricObject.value, id)
+  if (slotEditLabel.value) {
+    selectedFabricObject.value.set('slotLabel', slotEditLabel.value.trim())
+  }
+  const slotDefs = editorRef.value.getSlots()
+  tplStore.syncSlotsFromCanvas(slotDefs)
+  slotEditId.value = ''
+  slotEditLabel.value = ''
+  initSlotTexts()
+  ElMessage.success(`已标记为占位符: ${id}`)
+}
+
+function handleUnmarkSlot() {
+  if (!editorRef.value || !selectedFabricObject.value) return
+  editorRef.value.unmarkSlot(selectedFabricObject.value)
+  const slotDefs = editorRef.value.getSlots()
+  tplStore.syncSlotsFromCanvas(slotDefs)
+  initSlotTexts()
+  ElMessage.success('已取消占位符')
+}
+
+function handleRemoveSlot(slotId) {
+  if (!editorRef.value) return
+  const objects = editorRef.value.getCanvasObjects ? editorRef.value.getCanvasObjects() : []
+  for (const obj of objects) {
+    if (obj.slotId === slotId) {
+      editorRef.value.unmarkSlot(obj)
+      break
+    }
+  }
+  const slotDefs = editorRef.value.getSlots()
+  tplStore.syncSlotsFromCanvas(slotDefs)
+  delete slotTexts[slotId]
+}
+
+function refreshSlotTexts() {
+  if (!editorRef.value) return
+  const objects = editorRef.value.getCanvasObjects?.() || []
+  for (const obj of objects) {
+    if (obj.slotId && obj.slotId !== focusedSlotId.value && obj.text !== undefined) {
+      slotTexts[obj.slotId] = obj.text
+    }
+  }
+}
+
+function setSlotText(slotId, text) {
+  if (!editorRef.value) return
+  const objects = editorRef.value.getCanvasObjects?.() || []
+  const obj = objects.find(o => o.slotId === slotId)
+  if (obj) {
+    obj.set('text', text)
+    obj.initDimensions()
+    obj.setCoords()
+    obj.canvas?.requestRenderAll()
+  }
+}
+
+function handleSlotInput(slotId, text) {
+  if (slotTimers[slotId]) clearTimeout(slotTimers[slotId])
+  slotTimers[slotId] = setTimeout(() => {
+    setSlotText(slotId, text)
+    slotTimers[slotId] = null
+  }, 150)
+}
+
+function handleSlotBlur(slotId) {
+  const text = slotTexts[slotId] || ''
+  setSlotText(slotId, text)
+}
+
+function initSlotTexts() {
+  if (!editorRef.value) return
+  const objects = editorRef.value.getCanvasObjects?.() || []
+  for (const obj of objects) {
+    if (obj.slotId && obj.text !== undefined) {
+      slotTexts[obj.slotId] = obj.text
+    }
+  }
+}
+
+function onSelectionChanged(obj) {
+  selectedFabricObject.value = obj
+}
+
 watch(
   () => ({ ...store.imageOptions }),
   () => {
@@ -305,4 +539,11 @@ body { font-family: 'Microsoft YaHei', Arial, sans-serif; overflow: hidden; back
 .preview-loading { color: #909399; }
 .preview-info { font-size: 11px; color: #909399; text-align: center; margin-top: 4px; }
 .value-tag { display: inline-block; width: 30px; text-align: right; font-size: 11px; color: #409eff; margin-left: 6px; }
+.slot-list { max-height: 200px; overflow-y: auto; }
+.slot-item { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid #f0f0f0; }
+.slot-item:last-child { border-bottom: none; }
+.slot-name { font-size: 12px; font-weight: 600; color: #409eff; min-width: 70px; flex-shrink: 0; }
+.slot-text-input { flex: 1; min-width: 0; }
+.slot-del-btn { flex-shrink: 0; }
+
 </style>
