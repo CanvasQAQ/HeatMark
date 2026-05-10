@@ -161,7 +161,12 @@
         <span class="pixel-info">{{ pixelInfo.text }}</span>
       </div>
       <div class="bottom-right">
-        <el-select v-model="store.printerName" size="small" style="width:200px" filterable placeholder="选择打印机">
+        <span class="zoom-control">
+          <span class="zoom-label">缩放</span>
+          <el-slider v-model="store.imageOptions.displayScale" :min="100" :max="300" :step="10" :show-tooltip="false" size="small" style="width:100px" @change="onDisplayScaleChange" />
+          <span class="zoom-value">{{ store.imageOptions.displayScale }}%</span>
+        </span>
+        <el-select v-model="store.printerName" size="small" style="width:200px;margin-left:12px" filterable placeholder="选择打印机">
           <el-option v-for="p in store.printers" :key="p" :value="p" :label="p" />
         </el-select>
         <el-input-number v-model="store.copies" :min="1" :max="999" size="small" style="width:80px;margin-left:8px" controls-position="right" />
@@ -271,13 +276,21 @@ function onFontFamilyChange(val) {
   if (editorRef.value) editorRef.value.setFontFamily(val)
 }
 
+function onDisplayScaleChange(val) {
+  if (editorRef.value) editorRef.value.resizeCanvas()
+}
+
 async function refreshPreview() {
   if (!editorRef.value) return
-  const b64 = await editorRef.value.getCanvasImageBase64()
-  if (!b64) return
-
   previewLoading.value = true
   try {
+    const b64 = await editorRef.value.getCanvasImageBase64()
+    if (!b64) {
+      console.log('Canvas base64 is null/empty')
+      previewLoading.value = false
+      return
+    }
+    console.log('Sending preview request, b64 length:', b64.length)
     const res = await processImage(b64, store.imageOptions)
     previewDataUrl.value = 'data:image/png;base64,' + res.data.image_base64
     previewInfo.value = {
@@ -285,7 +298,8 @@ async function refreshPreview() {
       bytesPerRow: res.data.bytes_per_row,
     }
   } catch (e) {
-    ElMessage.error('预览处理失败')
+    console.error('Preview error:', e)
+    ElMessage.error('预览处理失败: ' + (e.message || String(e)))
   } finally {
     previewLoading.value = false
   }
@@ -524,6 +538,9 @@ body { font-family: 'Microsoft YaHei', Arial, sans-serif; overflow: hidden; back
 .app-bottom { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 12px; background: #fff; border-top: 1px solid #e4e7ed; flex-shrink: 0; }
 .bottom-left { display: flex; align-items: center; gap: 6px; }
 .bottom-right { display: flex; align-items: center; gap: 4px; }
+.zoom-control { display: flex; align-items: center; gap: 6px; }
+.zoom-label { font-size: 12px; color: #909399; }
+.zoom-value { font-size: 12px; color: #409eff; min-width: 36px; text-align: right; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.online { background: #67c23a; }
 .dot.offline { background: #f56c6c; }

@@ -30,7 +30,7 @@ import { Canvas, StaticCanvas, Rect, Line, FabricImage, IText, Textbox } from 'f
 import { EditTwo, Rectangle, DividingLine, Pic, DeleteOne } from '@icon-park/vue-next'
 
 const store = useCanvasStore()
-const emit = defineEmits(['canvas-changed'])
+const emit = defineEmits(['canvas-changed', 'selection-changed'])
 const canvasWrapper = ref(null)
 const imageInput = ref(null)
 let fabricCanvas = null
@@ -69,6 +69,12 @@ watch(() => store.effectiveCanvasSize, () => {
     initCanvas()
   }
 }, { deep: true })
+
+watch(() => store.imageOptions.displayScale, () => {
+  if (fabricCanvas) {
+    resizeCanvas()
+  }
+})
 
 function initCanvas() {
   const { w, h } = store.effectiveCanvasSize
@@ -166,14 +172,12 @@ function initCanvas() {
 function resizeCanvas() {
   if (!fabricCanvas || !canvasWrapper.value) return
   const wrapper = canvasWrapper.value
-  const maxW = wrapper.clientWidth - 8
-  const maxH = wrapper.clientHeight - 8
-  const scale = Math.min(maxW / fabricCanvas.width, maxH / fabricCanvas.height, 2)
-  fabricCanvas.setZoom(scale)
-  fabricCanvas.setDimensions({
-    width: fabricCanvas.width * scale,
-    height: fabricCanvas.height * scale,
-  }, { cssOnly: true })
+  const { w, h } = store.effectiveCanvasSize
+  const scale = (store.imageOptions.displayScale || 100) / 100
+  const cssW = Math.round(w * scale)
+  const cssH = Math.round(h * scale)
+  fabricCanvas.setZoom(1)
+  fabricCanvas.setDimensions({ width: cssW, height: cssH }, { cssOnly: true })
   fabricCanvas.renderAll()
 }
 
@@ -266,30 +270,28 @@ function clearCanvas() {
 
 function loadFromJSON(canvasJson) {
   if (!fabricCanvas || !canvasJson) return
-  return new Promise((resolve) => {
-    fabricCanvas.loadFromJSON(canvasJson, () => {
-      const objects = fabricCanvas.getObjects()
-      for (const obj of objects) {
-        if (obj.slotId) {
-          obj.set({
-            stroke: '#409eff',
-            strokeWidth: 1,
-            strokeDashArray: [4, 2],
-          })
-        }
+  return fabricCanvas.loadFromJSON(canvasJson).then(() => {
+    const objects = fabricCanvas.getObjects()
+    for (const obj of objects) {
+      if (obj.slotId) {
+        obj.set({
+          stroke: '#409eff',
+          strokeWidth: 1,
+          strokeDashArray: [4, 2],
+        })
       }
-      fabricCanvas.requestRenderAll()
-      resizeCanvas()
-      emitChange()
-      resolve()
-    })
+    }
+    fabricCanvas.requestRenderAll()
+    resizeCanvas()
+    emitChange()
   })
 }
 
 function markAsSlot(obj, slotId) {
   if (!obj || !(obj instanceof IText)) return
+  obj.set('slotId', slotId)
+  obj.set('slotLabel', slotId)
   obj.set({
-    slotId,
     stroke: '#409eff',
     strokeWidth: 1,
     strokeDashArray: [4, 2],
@@ -301,7 +303,8 @@ function markAsSlot(obj, slotId) {
 function unmarkSlot(obj) {
   if (!obj) return
   obj.set({
-    slotId: undefined,
+    slotId: null,
+    slotLabel: null,
     stroke: null,
     strokeWidth: 0,
     strokeDashArray: null,
@@ -331,28 +334,52 @@ function getCanvasObjects() {
 
 function saveState() {
   if (!fabricCanvas) return
-  const json = fabricCanvas.toJSON(['slotId', 'slotLabel'])
+  // Ensure all slot objects have their custom properties properly set
+  for (const obj of fabricCanvas.getObjects()) {
+    if (obj.slotId) {
+      obj.set({ slotId: obj.slotId, slotLabel: obj.slotLabel || obj.slotId })
+    }
+  }
+  const objectsData = fabricCanvas.getObjects().map(obj => {
+    return obj.toObject(['slotId', 'slotLabel'])
+  })
   const { w, h } = store.effectiveCanvasSize
-  json.width = w
-  json.height = h
+  const json = {
+    version: fabricCanvas.version || '6.9.1',
+    objects: objectsData,
+    width: w,
+    height: h
+  }
   store.canvasJson = JSON.stringify(json)
 }
 
 function getCanvasImageBase64() {
-  return new Promise((resolve) => {
-    const json = fabricCanvas.toJSON(['slotId', 'slotLabel'])
-    const { w, h } = store.effectiveCanvasSize
-    const offscreen = new StaticCanvas(document.createElement('canvas'), {
-      width: w,
-      height: h,
-      backgroundColor: '#ffffff',
-    })
-    offscreen.loadFromJSON(json, () => {
-      offscreen.renderAll()
-      const dataUrl = offscreen.toDataURL({ format: 'png', multiplier: 1, enableRetinaScaling: false })
-      offscreen.dispose()
-      resolve(dataUrl.split(',')[1])
-    })
+  return new Promise((resolve, reject) => {
+    try {
+      if (!fabricCanvas) {
+        reject(new Error('Canvas not initialized'))
+        return
+      }
+      const json = fabricCanvas.toJSON(['slotId', 'slotLabel'])
+      if (!json || !json.objects) {
+        resolve(null)
+        return
+      }
+      const { w, h } = store.effectiveCanvasSize
+      const offscreen = new StaticCanvas(null, {
+        width: w,
+        height: h,
+        backgroundColor: '#ffffff',
+      })
+      offscreen.loadFromJSON(json).then(() => {
+        offscreen.renderAll()
+        const dataUrl = offscreen.toDataURL({ format: 'png', multiplier: 1, enableRetinaScaling: false })
+        offscreen.dispose()
+        resolve(dataUrl.split(',')[1])
+      }).catch(reject)
+    } catch (e) {
+      reject(e)
+    }
   })
 }
 

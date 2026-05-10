@@ -72,10 +72,11 @@ def render_and_process(template_data, slot_values, printer_name, copies):
     dither = label_opts.get("dither", True)
 
     canvas = template_data.get("canvasJson", template_data.get("canvas_json", {}))
+    slots_list = template_data.get("slots", [])
     label_w_px = round(label_w / 25.4 * dpi)
     label_h_px = round(label_h / 25.4 * dpi)
 
-    rendered = render_canvas(canvas, label_w_px, label_h_px, slot_values=slot_values)
+    rendered = render_canvas(canvas, label_w_px, label_h_px, slot_values=slot_values, slots_list=slots_list)
     rendered = rendered.convert("RGBA")
 
     bw = process_image(
@@ -115,10 +116,11 @@ def save_png(template_data, slot_values, output_path):
     dither = label_opts.get("dither", True)
 
     canvas = template_data.get("canvasJson", template_data.get("canvas_json", {}))
+    slots_list = template_data.get("slots", [])
     label_w_px = round(label_w / 25.4 * dpi)
     label_h_px = round(label_h / 25.4 * dpi)
 
-    rendered = render_canvas(canvas, label_w_px, label_h_px, slot_values=slot_values)
+    rendered = render_canvas(canvas, label_w_px, label_h_px, slot_values=slot_values, slots_list=slots_list)
     rendered = rendered.convert("RGBA")
 
     bw = process_image(

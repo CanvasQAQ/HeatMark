@@ -237,8 +237,9 @@ def render_template(req: TemplateRenderRequest):
         label_height_px = int(label_height_mm / 25.4 * dpi)
 
         canvas = tpl.get("canvasJson", tpl.get("canvas_json", {}))
+        slots_list = tpl.get("slots", [])
         rendered = render_canvas(canvas, label_width_px, label_height_px,
-                                 slot_values=req.slots)
+                                 slot_values=req.slots, slots_list=slots_list)
         return {"success": True, "image_base64": image_to_base64(rendered),
                 "width": rendered.width, "height": rendered.height}
     except Exception as e:
@@ -259,8 +260,9 @@ def template_print(req: TemplateRenderRequest):
         label_height_px = int(opts.label_height_mm / 25.4 * opts.dpi)
 
         canvas = tpl.get("canvasJson", tpl.get("canvas_json", {}))
+        slots_list = tpl.get("slots", [])
         rendered = render_canvas(canvas, label_width_px, label_height_px,
-                                 slot_values=req.slots)
+                                 slot_values=req.slots, slots_list=slots_list)
         rendered = rendered.convert("RGBA")
 
         bw = process_image(

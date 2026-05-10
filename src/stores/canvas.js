@@ -12,6 +12,7 @@ export const useCanvasStore = defineStore('canvas', () => {
     labelWidthMm: 40,
     labelHeightMm: 30,
     dpi: 203,
+    displayScale: 100,
   })
 
   const printerName = ref('CHITENG-CT221D')

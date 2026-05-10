@@ -82,16 +82,20 @@ def _wrap_text(text, font, max_width):
     return lines
 
 
-def render_canvas(canvas_json, label_width_px, label_height_px, slot_values=None):
+def render_canvas(canvas_json, label_width_px, label_height_px, slot_values=None, slots_list=None):
     if slot_values is None:
         slot_values = {}
+    if slots_list is None:
+        slots_list = []
 
     img = Image.new("RGBA", (label_width_px, label_height_px), (255, 255, 255, 255))
     draw = ImageDraw.Draw(img)
 
     objects = canvas_json.get("objects", []) if isinstance(canvas_json, dict) else []
 
-    for obj in objects:
+    slots_order = [s["id"] for s in slots_list]
+    for idx, obj in enumerate(objects):
+        obj["_slotIdx"] = idx
         obj_type = obj.get("type", "").lower()
         left = obj.get("left", 0)
         top = obj.get("top", 0)
@@ -105,7 +109,7 @@ def render_canvas(canvas_json, label_width_px, label_height_px, slot_values=None
 
         if obj_type in ("textbox", "itext", "text"):
             _draw_textbox(draw, obj, slot_values, label_width_px, label_height_px,
-                          angle, scale_x, scale_y, opacity)
+                          angle, scale_x, scale_y, opacity, slots_order)
         elif obj_type == "rect":
             _draw_rect(draw, obj, label_width_px, label_height_px,
                        angle, scale_x, scale_y, opacity)
@@ -122,11 +126,23 @@ def render_canvas(canvas_json, label_width_px, label_height_px, slot_values=None
     return img
 
 
-def _draw_textbox(draw, obj, slot_values, canvas_w, canvas_h, angle, scale_x, scale_y, opacity):
+def _draw_textbox(draw, obj, slot_values, canvas_w, canvas_h, angle, scale_x, scale_y, opacity, slots_order=None):
     text = obj.get("text", "")
     slot_id = obj.get("slotId")
+    slot_label = obj.get("slotLabel")
+    replaced = False
+
     if slot_id and slot_id in slot_values:
         text = slot_values[slot_id]
+        replaced = True
+    elif slot_label and slot_label in slot_values:
+        text = slot_values[slot_label]
+        replaced = True
+
+    if not replaced and slots_order is not None and (slot_id or slot_label):
+        slot_idx = obj.get("_slotIdx")
+        if slot_idx is not None and slot_idx < len(slots_order):
+            text = slot_values.get(slots_order[slot_idx], text)
 
     font_family = obj.get("fontFamily", "")
     font_size = int((obj.get("fontSize") or 24) * scale_y)

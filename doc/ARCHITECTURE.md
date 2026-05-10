@@ -265,6 +265,7 @@ imageOptions: {
   labelWidthMm: 40,
   labelHeightMm:30,
   dpi:          203,
+  displayScale: 100,    // 屏幕显示缩放 100%-300%
 }
 printerName:   'CHITENG-CT221D'
 printers:      []
@@ -273,6 +274,20 @@ statusMsg:     '就绪'
 ```
 
 `getLabelPixelSize()` 计算像素尺寸：`round(mm / 25.4 * dpi)`
+`effectiveCanvasSize` 根据 rotation 计算有效画布尺寸
+
+### 屏幕显示缩放
+
+Canvas 在屏幕上的显示尺寸由 `displayScale` 控制（范围 100%-300%），通过右下角滑块调节。此缩放仅影响屏幕显示，不影响实际打印/预览的像素尺寸。
+
+**实现方式**：
+- `resizeCanvas()` 使用 CSS `cssOnly: true` 设置 CSS 尺寸为 `w * scale`
+- 画布内部缓冲区保持实际像素尺寸（用于打印）
+- `getCanvasImageBase64()` 使用 `StaticCanvas(null, {...})` 渲染离屏图像
+
+### 模板序列化
+
+保存模板时，`saveState()` 使用 `obj.toObject(['slotId', 'slotLabel'])` 确保 slot 属性被正确序列化到 JSON 中。加载模板时，`loadFromJSON()` 自动恢复 slot 对象的高亮样式。
 
 ### 6.2 Template Store（`useTemplateStore`）
 
@@ -333,7 +348,18 @@ Canvas 操作 (add/modify/remove)
 
 ### 图片导出
 
-`getCanvasImageBase64()` 使用 `StaticCanvas` 离屏渲染，避免缩放/选中框干扰输出。
+`getCanvasImageBase64()` 使用 `StaticCanvas(null, {...})` 离屏渲染，返回 PNG base64。画布内部缓冲区保持实际像素尺寸，背景色为白色。
+
+### 屏幕显示缩放控制
+
+右下角面板包含缩放滑块控件：
+```html
+<span class="zoom-control">
+  <span class="zoom-label">缩放</span>
+  <el-slider v-model="store.imageOptions.displayScale" :min="100" :max="300" :step="10" />
+  <span class="zoom-value">{{ store.imageOptions.displayScale }}%</span>
+</span>
+```
 
 ### 对外接口（defineExpose）
 
@@ -342,11 +368,13 @@ Canvas 操作 (add/modify/remove)
 | `getCanvasImageBase64()` | 返回 Canvas 的 PNG base64（不含 `data:image/...` 前缀） |
 | `clearCanvas()` | 清空画布 |
 | `loadFromJSON(canvasJson)` | 从 JSON 恢复画布对象（用于模板加载） |
-| `markAsSlot(obj, slotId)` | 标记文字对象为占位符 |
-| `unmarkSlot(obj)` | 取消占位符标记 |
-| `getSlots()` | 获取所有占位符定义 |
+| `markAsSlot(obj, slotId)` | 标记文字对象为占位符，设置 slotId 和 slotLabel 属性 |
+| `unmarkSlot(obj)` | 取消占位符标记，清除 slotId/slotLabel |
+| `getSlots()` | 获取所有占位符定义 [{ id, label, defaultText }] |
 | `getCanvasObjects()` | 获取画布中所有对象 |
-| `resizeCanvas()` | 适配容器尺寸后重渲染 |
+| `resizeCanvas()` | 根据 displayScale 调整 CSS 尺寸 |
+| `setFontSize(size)` | 设置选中文字的字号 |
+| `setFontFamily(family)` | 设置选中文字的字体 |
 
 ---
 
@@ -403,7 +431,17 @@ app.on('window-all-closed')
 
 ### 占位符替换
 
-`render_canvas(canvas_json, w, h, slot_values={})` 自动将对象中 `slotId` 匹配的文本替换为 `slot_values` 中的值。
+`render_canvas(canvas_json, w, h, slot_values={}, slots_list=[])` 自动将对象中 `slotId` 匹配的文本替换为 `slot_values` 中的值。
+
+**替换优先级**：
+1. 如果对象的 `slotId` 在 `slot_values` 中存在 → 使用该值
+2. 如果对象的 `slotLabel` 在 `slot_values` 中存在 → 使用该值
+3. 如果对象有 `slotId`/`slotLabel` 但上面都没有匹配 → 使用 positional fallback（按 `_slotIdx` 匹配 `slots_list` 的顺序）
+
+**Positional Fallback 条件**：
+- 对象必须有 `slotId` 或 `slotLabel` 属性（固定文字不会被替换）
+- `slots_order = [s['id'] for s in slots_list]`
+- `slot_idx = obj.get('_slotIdx')` 从 0 开始
 
 ---
 
@@ -417,6 +455,11 @@ python heatmark-cli.py -t 模板名 --csv data.csv --print [--copies 1] [--print
 ```
 
 核心流程：`render_canvas()` → `process_image()` → `generate_tspl_bytes()` → `send_to_printer()`
+
+**模板匹配规则**：
+- CLI 通过 `render_canvas(canvas_json, label_w_px, label_h_px, slot_values=slot_values, slots_list=slots_list)` 渲染
+- 对象必须有 `slotId` 属性才会被替换（固定文字不会被意外替换）
+- fallback 匹配按对象在 canvasJson.objects 数组中的顺序（`_slotIdx`）对应 slots_list 的顺序
 
 ---
 
