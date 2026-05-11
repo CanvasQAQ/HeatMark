@@ -46,7 +46,7 @@ defineEmits(['restart', 'update:displayScale', 'update:printerName', 'update:cop
 .bottom-left { display: flex; align-items: center; gap: 6px; }
 .bottom-right { display: flex; align-items: center; gap: 4px; }
 .zoom-control { display: flex; align-items: center; gap: 6px; }
-.zoom-label { font-size: 12px; color: #909399; flex-shrink: 0; white-space: nowrap; }
+.zoom-label { font-size: 12px; color: #909399; flex-shrink: 0; white-space: nowrap; margin-right: 4px; }
 .zoom-value { font-size: 12px; color: #409eff; min-width: 36px; text-align: right; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.online { background: #67c23a; }
