@@ -9,7 +9,7 @@
     <div class="bottom-right">
       <span class="zoom-control">
         <span class="zoom-label">缩放</span>
-        <el-slider :model-value="displayScale" :min="100" :max="300" :step="10" :show-tooltip="false" size="small" style="width:100px" @change="$emit('update:displayScale', $event)" />
+        <el-slider :model-value="displayScale" :min="100" :max="300" :step="10" :show-tooltip="false" size="small" style="width:100px;flex-shrink:0" @update:model-value="$emit('update:displayScale', $event)" />
         <span class="zoom-value">{{ displayScale }}%</span>
       </span>
       <el-select :model-value="printerName" size="small" style="width:200px;margin-left:12px" filterable placeholder="选择打印机" @change="$emit('update:printerName', $event)">
@@ -46,7 +46,7 @@ defineEmits(['restart', 'update:displayScale', 'update:printerName', 'update:cop
 .bottom-left { display: flex; align-items: center; gap: 6px; }
 .bottom-right { display: flex; align-items: center; gap: 4px; }
 .zoom-control { display: flex; align-items: center; gap: 6px; }
-.zoom-label { font-size: 12px; color: #909399; }
+.zoom-label { font-size: 12px; color: #909399; flex-shrink: 0; white-space: nowrap; }
 .zoom-value { font-size: 12px; color: #409eff; min-width: 36px; text-align: right; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.online { background: #67c23a; }

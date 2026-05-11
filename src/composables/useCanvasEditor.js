@@ -231,6 +231,7 @@ export function useCanvasEditor() {
   function loadFromJSON(canvasJson) {
     if (!fabricCanvas || !canvasJson) return Promise.resolve()
     return fabricCanvas.loadFromJSON(canvasJson).then(() => {
+      fabricCanvas.backgroundColor = '#ffffff'
       for (const obj of fabricCanvas.getObjects()) {
         if (obj.slotId) {
           obj.set({ stroke: '#409eff', strokeWidth: 1, strokeDashArray: [4, 2] })
