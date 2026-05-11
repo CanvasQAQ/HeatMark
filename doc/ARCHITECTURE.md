@@ -71,9 +71,25 @@
 
 | 文件 | 类型 | 职责 |
 |---|---|---|
-| `src/App.vue` | Vue SFC | 主布局，所有业务逻辑（预览、打印、保存、模板管理、占位符编辑） |
-| `src/components/CanvasEditor.vue` | Vue SFC | Fabric.js 画布编辑器，支持占位符标记、模板加载/保存 |
+| `src/App.vue` | Vue SFC | 编排壳：挂载所有子组件，通过 Composables 调度业务逻辑 |
+| `src/components/TitleBar.vue` | Vue SFC | 自定义无边框标题栏（窗口控件） |
+| `src/components/CanvasEditor.vue` | Vue SFC | Fabric.js 画布编辑器薄封装，委托 `useCanvasEditor` |
+| `src/components/EditorToolbar.vue` | Vue SFC | 工具栏：添加元素、撤销/重做、图层管理、删除/清空 |
+| `src/components/SettingsPanel.vue` | Vue SFC | 图像设置面板：标签尺寸、DPI、抖动、对比度、亮度、方向、反色 |
+| `src/components/TextSettingsPanel.vue` | Vue SFC | 文字设置面板：字体、字号（仅选中文字时显示） |
+| `src/components/PreviewPanel.vue` | Vue SFC | 预览面板：实时二值化预览图 + 像素信息 |
+| `src/components/TemplatePanel.vue` | Vue SFC | 模板+槽位面板：模板选择/另存、槽位输入编辑 |
 | `src/components/TemplateSelector.vue` | Vue SFC | 模板浏览器弹窗，展示模板列表和预览 |
+| `src/components/SlotMarkerPanel.vue` | Vue SFC | 占位符标记面板：标记/取消文字对象为占位符 |
+| `src/components/ExportButton.vue` | Vue SFC | 导出 TSPL 代码按钮 |
+| `src/components/BottomBar.vue` | Vue SFC | 底部状态栏：后端状态、缩放滑块、打印机选择、份数、打印按钮 |
+| `src/composables/useCanvasEditor.js` | Composable | Canvas 生命周期管理、对象增删、缩放、图片导出 |
+| `src/composables/useCanvasHistory.js` | Composable | 撤销/重做栈（命令模式，JSON 序列化快照） |
+| `src/composables/usePreview.js` | Composable | 预览逻辑：防抖刷新、base64 生成、处理结果缓存 |
+| `src/composables/usePrint.js` | Composable | 打印请求、TSPL 导出 |
+| `src/composables/useSettings.js` | Composable | 图像选项读写、DPI/尺寸联动计算 |
+| `src/composables/useTemplates.js` | Composable | 模板加载/保存、槽位编辑同步 |
+| `src/composables/useBackendStatus.js` | Composable | 后端健康轮询 + Electron IPC 监听 |
 | `src/stores/canvas.js` | Pinia Store | 全局状态：图像选项、打印机、份数、状态消息 |
 | `src/stores/template.js` | Pinia Store | 模板状态：模板列表、当前模板、占位符槽位 |
 | `src/api/backend.js` | JS Module | Axios 封装，对后端 10 个 API 的调用函数 |
@@ -248,9 +264,28 @@ TSPL 打印头物理方向与图片方向不同，`generate_tspl_bytes()` 在生
 
 ---
 
-## 6. 前端状态管理（Pinia Store）
+## 6. 前端状态管理（Pinia Store + Composables）
 
-### 6.1 Canvas Store（`useCanvasStore`）
+### 架构原则 (v2.0)
+
+- **Composables** 拥有业务逻辑、副作用、API 调用
+- **Pinia Stores** 是纯共享状态容器（不含业务逻辑）
+- **组件** 是纯 UI（props in / emits out），不直接访问 Store
+- **App.vue** 是编排壳，调用 Composables 并分发 props 给子组件
+
+### 6.1 Composable 层（`src/composables/`）
+
+| Composable | 职责 |
+|---|---|
+| `useCanvasEditor` | Canvas 生命周期、对象增删、缩放、撤销/重做、键盘快捷键 |
+| `useCanvasHistory` | 撤销/重做栈（命令模式，JSON 序列化快照，最大 50 步） |
+| `usePreview` | 防抖预览、base64 生成、后端处理调用 |
+| `usePrint` | 打印请求、TSPL 文本导出 |
+| `useSettings` | 图像选项读写、像素尺寸/画布尺寸计算 |
+| `useTemplates` | 模板加载/保存、槽位编辑/同步 |
+| `useBackendStatus` | 后端健康轮询 + Electron IPC 状态监听 |
+
+### 6.2 Canvas Store（`useCanvasStore`）
 
 Store 名称：`canvas`（`useCanvasStore`）
 
@@ -273,23 +308,9 @@ copies:        1
 statusMsg:     '就绪'
 ```
 
-`getLabelPixelSize()` 计算像素尺寸：`round(mm / 25.4 * dpi)`
-`effectiveCanvasSize` 根据 rotation 计算有效画布尺寸
+`getLabelPixelSize()` / `effectiveCanvasSize` 已迁移至 `useSettings` composable。
 
-### 屏幕显示缩放
-
-Canvas 在屏幕上的显示尺寸由 `displayScale` 控制（范围 100%-300%），通过右下角滑块调节。此缩放仅影响屏幕显示，不影响实际打印/预览的像素尺寸。
-
-**实现方式**：
-- `resizeCanvas()` 使用 CSS `cssOnly: true` 设置 CSS 尺寸为 `w * scale`
-- 画布内部缓冲区保持实际像素尺寸（用于打印）
-- `getCanvasImageBase64()` 使用 `StaticCanvas(null, {...})` 渲染离屏图像
-
-### 模板序列化
-
-保存模板时，`saveState()` 使用 `obj.toObject(['slotId', 'slotLabel'])` 确保 slot 属性被正确序列化到 JSON 中。加载模板时，`loadFromJSON()` 自动恢复 slot 对象的高亮样式。
-
-### 6.2 Template Store（`useTemplateStore`）
+### Template Store（`useTemplateStore`）
 
 Store 名称：`template`（`useTemplateStore`）
 
@@ -303,16 +324,29 @@ showSelector:        false     // 模板选择器弹窗可见性
 pendingSlotId:       ''        // 待操作的槽位 ID
 ```
 
-关键方法：
-- `fetchTemplateList()`：从 `/api/templates` 拉取列表
-- `loadTemplate(id)`：加载模板完整数据（labelOptions + canvasJson + slots）
-- `persistTemplate(...)`：保存模板到后端
-- `syncSlotsFromCanvas(slotDefs)`：从画布同步槽位定义
-- `addSlot(id, label, defaultText)` / `removeSlot(id)`：管理槽位
+关键方法已迁移至 `useTemplates` composable。
 
 ---
 
 ## 7. Canvas 编辑器（Fabric.js v6）
+
+### 架构 v2.0
+
+Canvas 编辑器已重构为薄封装组件 `CanvasEditor.vue`（~75 行），所有 Canvas 逻辑委托给 `useCanvasEditor` composable。工具栏独立为 `EditorToolbar.vue`。
+
+### 键盘快捷键
+
+| 快捷键 | 操作 |
+|---|---|
+| `Ctrl+Z` / `Cmd+Z` | 撤销 |
+| `Ctrl+Y` / `Cmd+Y` | 重做 |
+| `Delete` / `Backspace` | 删除选中对象 |
+
+快捷键仅在未聚焦输入框/文本框时生效。
+
+### 撤销/重做
+
+`useCanvasHistory` 使用 JSON 序列化快照实现命令模式。每次 `object:added`、`object:modified`、`object:removed` 事件自动保存状态。最大 50 步历史。
 
 ### 导入
 
