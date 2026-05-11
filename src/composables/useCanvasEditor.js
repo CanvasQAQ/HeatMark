@@ -70,10 +70,45 @@ export function useCanvasEditor() {
     })
 
     fabricCanvas.on('object:added', _callCanvasChanged)
+
+    fabricCanvas.on('object:scaling', (e) => {
+      if (e.target instanceof IText && _scalingData === null) {
+        _scalingData = {
+          initialFontSize: e.target.fontSize,
+          initialWidth: e.target.width,
+          corner: e.transform?.corner,
+        }
+      }
+    })
+
+    function finalizeTextScale(obj) {
+      if (!_scalingData) return
+      const { corner, initialFontSize } = _scalingData
+      if (corner === 'ml' || corner === 'mr') {
+        obj.scaleX = 1
+        obj.scaleY = 1
+        obj.setCoords()
+      } else {
+        const capturedScaleX = obj.scaleX
+        const capturedScaleY = obj.scaleY
+        obj.scaleX = 1
+        obj.scaleY = 1
+        const scale = (corner === 'mt' || corner === 'mb')
+          ? Math.abs(capturedScaleY)
+          : Math.max(Math.abs(capturedScaleX), Math.abs(capturedScaleY))
+        obj.fontSize = Math.max(6, Math.round(initialFontSize * scale))
+        obj.initDimensions()
+        obj.setCoords()
+      }
+      _scalingData = null
+    }
+
     fabricCanvas.on('object:modified', (e) => {
       if (e.target instanceof IText) {
-        _callCanvasChanged()
+        finalizeTextScale(e.target)
+        fabricCanvas.requestRenderAll()
         emitSelection()
+        _callCanvasChanged()
       } else {
         _callCanvasChanged()
       }
@@ -104,6 +139,8 @@ export function useCanvasEditor() {
   function resizeCanvas() {
     if (!fabricCanvas || !canvasWrapper.value) return
     const { w, h } = effectiveCanvasSize.value
+    fabricCanvas.setWidth(w)
+    fabricCanvas.setHeight(h)
     const scale = (store.imageOptions.displayScale || 100) / 100
     const cssW = Math.round(w * scale)
     const cssH = Math.round(h * scale)
